@@ -14,6 +14,19 @@ services:
       db:
         condition: service_healthy
 
+  # Node lives in a container too: no nvm, no host Node. Started on demand (`make dev`, `make assets`).
+  node:
+    image: node:22-alpine
+    profiles: ["node"]
+    user: "${UID:-1000}:${GID:-1000}"
+    working_dir: /var/www/html
+    environment:
+      npm_config_cache: /tmp/.npm
+    volumes:
+      - .:/var/www/html
+    ports:
+      - "${VITE_PORT:-5174}:5174"
+
   db:
     image: mysql:8.4
     environment:

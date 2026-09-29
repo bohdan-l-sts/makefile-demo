@@ -16,7 +16,12 @@ export default defineConfig({
         }),
         tailwindcss(),
     ],
+    // Vite runs inside the `node` container: listen on all interfaces, tell the browser to use localhost.
     server: {
+        host: '0.0.0.0',
+        port: 5174,
+        strictPort: true,
+        hmr: { host: 'localhost' },
         watch: {
             ignored: ['**/storage/framework/views/**'],
         },
