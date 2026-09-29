@@ -1,4 +1,13 @@
-# Step 3 — advanced: incremental installs, Node in a container, parallel checks, guarded commands.
+# Step 4 — "ideal": everything from step 3, plus strict shell, positional arguments,
+# personal overrides and the same targets in CI.
+
+# Fail fast: unset variables, failed pipes and errors stop the recipe (default /bin/sh would carry on).
+SHELL := bash
+.SHELLFLAGS := -eu -o pipefail -c
+# A recipe that fails half-way deletes its half-written target file instead of leaving it "up to date".
+.DELETE_ON_ERROR:
+MAKEFLAGS += --warn-undefined-variables --no-builtin-rules
+.SUFFIXES:
 
 .DEFAULT_GOAL := help
 
@@ -18,9 +27,25 @@ EXEC    := $(COMPOSE) exec $(TTY) app
 EXEC_T  := $(COMPOSE) exec -T app
 NODE    := $(COMPOSE) run --rm node
 C       ?=
+FORCE   ?=
+ARGS    ?=
+
+# Positional arguments: `make artisan migrate:status`, `make test UserTest`, `make composer require foo/bar`.
+# Everything after a proxy target is an argument, not a target. A catch-all rule turns those words into no-ops.
+# Don't `$(eval $(ARGS):;@:)` or list them in .PHONY: a word like `migrate:status` has a colon, and make
+# reads it as "target: prerequisite" -> "multiple target patterns. Stop."
+PROXIES := artisan composer test npm
+ifneq ($(filter $(firstword $(MAKECMDGOALS)),$(PROXIES)),)
+ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
+%:
+	@:
+endif
+
+# Personal, git-ignored tweaks (extra aliases, a different APP_PORT, ...). See Makefile.local.example.
+-include Makefile.local
 
 .PHONY: help init up down restart shell artisan composer test migrate logs \
-        dev assets check lint stan db-fresh db-dump doctor
+        dev assets npm check lint stan ci db-fresh db-dump doctor
 
 help: ## Show this help (default goal)
 	@grep -hE '^[a-zA-Z_.-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -59,11 +84,11 @@ restart: down up ## Restart containers
 shell: ## Open a shell in the app container
 	$(EXEC) sh
 
-artisan: ## Any artisan command: make artisan C="make:model Post -m"
-	$(EXEC) php artisan $(C)
+artisan: ## Any artisan command: make artisan migrate:status  (or C="make:model Post -m")
+	$(EXEC) php artisan $(ARGS) $(C)
 
-composer: ## Any composer command: make composer C="require spatie/laravel-data"
-	$(EXEC) composer $(C)
+composer: ## Any composer command: make composer require spatie/laravel-data
+	$(EXEC) composer $(ARGS) $(C)
 
 migrate: ## Run migrations
 	$(EXEC) php artisan migrate
@@ -77,10 +102,13 @@ dev: node_modules/.package-lock.json ## Vite dev server in the node container (h
 assets: node_modules/.package-lock.json ## Production build of the front-end assets
 	$(NODE) npm run build
 
+npm: ## Any npm command in the node container: make npm outdated
+	$(NODE) npm $(ARGS) $(C)
+
 # ---- quality ---------------------------------------------------------------------------------
 
-test: ## Run tests: make test C="--filter=UserTest"
-	$(EXEC_T) php artisan test $(C)
+test: ## Run tests: make test UserTest  (= --filter=UserTest; flags via C="--stop-on-failure")
+	$(EXEC_T) php artisan test $(if $(ARGS),--filter=$(ARGS)) $(C)
 
 lint: ## Pint in check mode
 	$(EXEC_T) ./vendor/bin/pint --test
@@ -92,6 +120,10 @@ stan: ## PHPStan (Larastan)
 check: lint stan test ## Pint + PHPStan + tests (try: make -j3 check)
 	@printf '\033[32mAll checks passed\033[0m\n'
 
+ci: ## What CI runs: the same targets developers use locally
+	$(MAKE) init
+	$(MAKE) -j3 check
+
 # ---- database --------------------------------------------------------------------------------
 
 db-fresh: ## Drop all tables and re-seed (asks first; FORCE=1 skips the question)
@@ -100,9 +132,11 @@ db-fresh: ## Drop all tables and re-seed (asks first; FORCE=1 skips the question
 	$(EXEC) php artisan migrate:fresh --seed
 
 # Credentials come from the db container's own environment: nothing parsed from .env on the host.
-db-dump: ## Dump the database to storage/dump.sql
-	$(COMPOSE) exec -T db sh -c 'MYSQL_PWD="$$MYSQL_PASSWORD" exec mysqldump --no-tablespaces -u"$$MYSQL_USER" "$$MYSQL_DATABASE"' > storage/dump.sql
-	@echo "Saved storage/dump.sql ($$(wc -c < storage/dump.sql) bytes)"
+# With pipefail a failed mysqldump fails the target, instead of gzip "succeeding" on empty input.
+db-dump: ## Dump the database to storage/dump.sql.gz
+	$(COMPOSE) exec -T db sh -c 'MYSQL_PWD="$$MYSQL_PASSWORD" exec mysqldump --no-tablespaces -u"$$MYSQL_USER" "$$MYSQL_DATABASE"' \
+		| gzip > storage/dump.sql.gz
+	@echo "Saved storage/dump.sql.gz ($$(wc -c < storage/dump.sql.gz) bytes)"
 
 # ---- diagnostics -----------------------------------------------------------------------------
 

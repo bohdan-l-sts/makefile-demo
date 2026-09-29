@@ -1,0 +1,8 @@
+# Copy to Makefile.local (git-ignored) for personal tweaks. Loaded by `-include Makefile.local`.
+
+# Run the app on another port:
+# APP_PORT := 8090
+# export APP_PORT
+
+# Personal shortcuts:
+# tinker: ; $(EXEC) php artisan tinker
