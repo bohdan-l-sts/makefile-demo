@@ -1,0 +1,493 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Makefile в Laravel</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --ink: #e8eaf0; --muted: #9aa3b2; --accent: #7dd3fc;
+    --good: #86efac; --bad: #fca5a5; --warn: #fcd34d; --code: #0b0d11; --border: #262b36;
+    --mono: ui-monospace, "JetBrains Mono", "Fira Code", Menlo, Consolas, monospace;
+    --sans: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font-family: var(--sans); }
+  .deck { position: fixed; inset: 0; }
+  .slide {
+    position: absolute; inset: 0; padding: 6vh 7vw 9vh; display: none; flex-direction: column;
+    justify-content: center; gap: 2.2vh; font-size: clamp(16px, 2.3vw, 30px); line-height: 1.4;
+  }
+  .slide.active { display: flex; }
+  h1 { font-size: 2.3em; line-height: 1.1; margin: 0; letter-spacing: -0.02em; }
+  h2 { font-size: 1.55em; margin: 0 0 0.3em; letter-spacing: -0.01em; }
+  h2 small { display: block; font-size: 0.5em; color: var(--muted); font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 0.4em; }
+  p, li { margin: 0.25em 0; }
+  ul { margin: 0; padding-left: 1.2em; }
+  .muted { color: var(--muted); }
+  .accent { color: var(--accent); }
+  .bad::marker, .bad-mark { color: var(--bad); }
+  li.bad::marker { content: "✗  "; }
+  li.good::marker { content: "✓  "; color: var(--good); }
+  li.warn::marker { content: "!  "; color: var(--warn); }
+  code { font-family: var(--mono); font-size: 0.9em; background: var(--panel); border: 1px solid var(--border); padding: 0.05em 0.35em; border-radius: 6px; }
+  pre {
+    margin: 0; background: var(--code); border: 1px solid var(--border); border-radius: 12px;
+    padding: 0.8em 1em; font-family: var(--mono); font-size: 0.66em; line-height: 1.5; overflow: auto; max-height: 58vh;
+  }
+  pre code { background: none; border: 0; padding: 0; font-size: 1em; }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 2.5vw; align-items: start; }
+  .cols.wide { grid-template-columns: 1.75fr 1fr; }
+  .cols.wide-right { grid-template-columns: 1fr 1.4fr; }
+  .cols pre { font-size: 0.58em; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 0.8em 1em; }
+  .card h3 { margin: 0 0 0.3em; font-size: 0.95em; }
+  .tag { display: inline-block; font-family: var(--mono); font-size: 0.55em; padding: 0.2em 0.6em; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); vertical-align: middle; }
+  .big { font-size: 1.25em; }
+  .title-slide h1 span { color: var(--accent); }
+  .levels { display: grid; grid-template-columns: repeat(5, 1fr); gap: 1vw; font-size: 0.7em; }
+  .levels div { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 0.7em; }
+  .levels b { display: block; font-family: var(--mono); color: var(--accent); }
+  /* Makefile highlighting (applied by the script below) */
+  .hl-c { color: #6b7385; font-style: italic; }
+  .hl-t { color: var(--accent); font-weight: 600; }
+  .hl-v { color: #c4b5fd; }
+  .hl-s { color: var(--good); }
+  .hl-k { color: var(--warn); }
+  .notes { display: none; }
+  #notes {
+    position: fixed; left: 0; right: 0; bottom: 0; max-height: 34vh; overflow: auto; display: none;
+    background: #1d2230f2; border-top: 1px solid var(--border); padding: 1em 7vw 3em; font-size: 17px; line-height: 1.5;
+  }
+  body.show-notes #notes { display: block; }
+  #bar { position: fixed; left: 0; bottom: 0; height: 4px; background: var(--accent); transition: width .2s; }
+  #count { position: fixed; right: 1.5vw; bottom: 1.2vh; color: var(--muted); font: 14px var(--mono); }
+  #help { position: fixed; left: 1.5vw; bottom: 1.2vh; color: var(--muted); font: 13px var(--sans); opacity: .7; }
+  @media (max-width: 800px) { .cols, .levels { grid-template-columns: 1fr; } .slide { padding: 4vh 5vw 8vh; } }
+  @media print {
+    .slide { display: flex !important; position: relative; height: 100vh; page-break-after: always; }
+    #bar, #count, #help, #notes { display: none !important; }
+  }
+</style>
+</head>
+<body>
+<div class="deck">
+
+<!-- 1 -->
+<section class="slide title-slide">
+  <p class="tag">DX · Docker · make</p>
+  <h1>Makefile в Laravel-проектах:<br>от <span>«у меня всё работает»</span><br>до идеального DX</h1>
+  <p class="muted">Как перестать мучить хост-систему, права файлов и длинные команды</p>
+  <div class="notes">
+    Всем привет. Сегодня про DX (Developer Experience): сколько времени и нервов мы теряем, чтобы просто запустить проект,
+    прогнать тесты или сбросить базу. Начну с живой боли, потом покажу, как один файл закрывает большую часть этих проблем.
+    <br><br><b>Лайфхак для старта:</b> открыть терминал и начать набирать длинную команду
+    <code>docker compose exec -it app php artisan migrate:fresh --seed</code>… «ой, контейнер не поднят… ой, .env нет».
+  </div>
+</section>
+
+<!-- 2 -->
+<section class="slide">
+  <h2><small>Музей боли · 1</small>Хост против Докера</h2>
+  <ul>
+    <li class="bad">PHP 8.2 на хосте, PHP 8.4 в контейнере: «а у меня локально работает»</li>
+    <li class="bad">Node на хосте, у каждого своя версия через nvm: у одного 18, у другого 22</li>
+    <li class="bad"><code>composer install</code> на хосте: не те расширения → <code>--ignore-platform-reqs</code> → сюрпризы на проде</li>
+    <li class="bad">«Зачем нам Докер, если я всё равно всё запускаю локально?»</li>
+  </ul>
+  <div class="notes">
+    Классика: подняли Docker, но чтобы запустить composer или artisan, половина лезет в контейнер через exec,
+    а вторая ставит PHP на хост. Версии расходятся, профит от изоляции умножается на ноль.
+    Это не выдумка: у нас в команде на ноутбуке с PHP 8.2 проект на 8.4 без Docker просто не запускается.
+  </div>
+</section>
+
+<!-- 3 -->
+<section class="slide">
+  <h2><small>Музей боли · 2</small>Права, гирлянды, онбординг</h2>
+  <ul>
+    <li class="bad">Файлы от <code>root:root</code> → IDE не сохраняет → <code>sudo chmod -R 777 storage/</code></li>
+    <li class="bad">Команды-гирлянды: <code>docker compose exec -u sail app php artisan test --filter=UserTest</code></li>
+    <li class="bad">Команды живут в истории bash, в личных заметках и в чужих Run Configurations</li>
+    <li class="bad">README на 15 страниц, устаревший прошлым летом. «Спросите Васю». Вася уволился</li>
+  </ul>
+  <div class="notes">
+    Запустил генерацию миграции из-под root в контейнере, и всё: PhpStorm не даёт редактировать, git ругается.
+    Новичок первый день не пишет код, а поднимает окружение по README, который никто не обновлял.
+    <br><br><b>Демо:</b> step-0: <code>make:model</code> в контейнере → <code>ls -l</code> показывает root.
+  </div>
+</section>
+
+<!-- 4 -->
+<section class="slide">
+  <h2><small>Музей боли · 3</small>Ещё бесяшки</h2>
+  <div class="cols">
+    <ul>
+      <li class="bad">Два <code>.env</code> в голове: <code>DB_HOST=db</code> для контейнера, <code>127.0.0.1:33066</code> для хоста</li>
+      <li class="bad">Порт 3306 занят локальным MySQL, который «когда-то ставил для другого проекта»</li>
+      <li class="bad"><code>node_modules</code> собраны на macOS → в Linux-контейнере падает esbuild/rollup (нативные бинарники)</li>
+    </ul>
+    <ul>
+      <li class="bad">git-хуки (Pint, GrumPHP) требуют PHP на хосте</li>
+      <li class="bad">Xdebug настроен на хосте, а код крутится в контейнере</li>
+      <li class="bad">CI запускает одни команды, разработчики другие → «в CI зелёное, у меня красное»</li>
+    </ul>
+  </div>
+  <div class="notes">
+    Спросить зал: кто узнал себя хотя бы в трёх пунктах? Общий корень: нет единой точки входа, и каждый
+    разработчик собирает своё окружение сам. Отсюда переход к make.
+  </div>
+</section>
+
+<!-- 5 -->
+<section class="slide">
+  <h2><small>Решение</small>make как единый CLI-слой проекта</h2>
+  <ul class="big">
+    <li class="good">Один интерфейс: <code>make init</code>, <code>make test</code>, <code>make check</code></li>
+    <li class="good">Есть в Linux/macOS/WSL2 из коробки, сам не требует PHP/Node/Python</li>
+    <li class="good">Прячет кишки: разработчику не нужно помнить флаги Docker Compose</li>
+    <li class="good">Это не просто алиасы, а граф зависимостей с инкрементальностью</li>
+  </ul>
+  <p class="muted">На хосте остаются только <b>Docker</b> и <b>make</b>.</p>
+  <div class="notes">
+    Разработчику всё равно, что под капотом: Docker, Sail, OrbStack. Он знает 3–4 команды.
+    И тот же набор команд работает в CI. Это и есть Single Source of Truth.
+  </div>
+</section>
+
+<!-- 6 -->
+<section class="slide">
+  <h2><small>Как думает make</small>Цель · зависимости · рецепт</h2>
+  <div class="cols wide">
+    <pre><code class="mk">report.txt: data.csv        # цель: зависимости
+	wc -l data.csv &gt; report.txt  # рецепт (строго TAB!)
+
+test:                        # «фальшивая» цель, это не файл
+	php artisan test
+.PHONY: test</code></pre>
+    <ul>
+      <li>Цель = <b>файл</b>. Пересобирается, если его нет или зависимость <b>новее</b></li>
+      <li><code>.PHONY</code> = «это команда, а не файл»: выполнять всегда</li>
+      <li><code>make -n</code> показывает, что будет сделано, ничего не запуская</li>
+    </ul>
+  </div>
+  <div class="notes">
+    make придумали в 1976 для компиляции C: не пересобирать то, что не менялось. Эта же идея даёт нам
+    «composer install только когда поменялся composer.lock».
+    <br><br><b>Демо:</b> <code>snippets/04-file-targets</code>: make, make ещё раз (up to date), touch data.csv, make.
+  </div>
+</section>
+
+<!-- 7 -->
+<section class="slide">
+  <h2><small>Ловушки</small>То, на чём спотыкаются все</h2>
+  <div class="cols">
+    <ul>
+      <li class="warn"><b>TAB, не пробелы</b>: иначе <code>missing separator. Stop.</code></li>
+      <li class="warn"><b>Нет <code>.PHONY</code></b>: появилась папка <code>test/</code> → <code>'test' is up to date</code></li>
+      <li class="warn"><b>Каждая строка рецепта отдельный shell</b>: <code>cd</code> и переменные не доживают до следующей</li>
+    </ul>
+    <ul>
+      <li class="warn"><code>$</code> в рецепте это make, а <code>$$</code> это shell</li>
+      <li class="warn"><code>/bin/sh</code> в Ubuntu это dash: нет <code>read -p</code>, <code>echo -e</code> ведёт себя иначе → <code>printf</code></li>
+      <li class="warn"><code>@</code> прячет команду, но не ошибки</li>
+    </ul>
+  </div>
+  <div class="notes">
+    <b>Демо:</b> <code>snippets/01-tabs</code>, <code>02-phony</code> (mkdir test), <code>03-one-shell-per-line</code>.
+    А также step-1 проекта: <code>mkdir test &amp;&amp; make test</code> и <code>make logs</code> с потерянным <code>cd</code>.
+  </div>
+</section>
+
+<!-- 8 -->
+<section class="slide">
+  <h2><small>Путь демо-проекта</small>Пять шагов: от «очень плохо» до идеала</h2>
+  <div class="levels">
+    <div><b>step-0</b>Музей боли: PHP/Node на хост, root в контейнере</div>
+    <div><b>step-1</b>Makefile как свалка алиасов</div>
+    <div><b>step-2</b>Фундамент: UID/GID, help, init, аргументы</div>
+    <div><b>step-3</b>Инкрементальность, Node в Docker, <code>-j</code>, защита</div>
+    <div><b>step-4</b>Строгий режим, позиционные аргументы, CI</div>
+  </div>
+  <p class="muted"><code>git checkout step-N</code> в <code>~/demo/app</code></p>
+  <div class="notes">Дальше каждый слайд = один шаг. Можно перемежать с live demo по сценарию из DEMO_SCRIPT.md.</div>
+</section>
+
+<!-- 9 -->
+<section class="slide">
+  <h2><small>step-2 · фундамент</small>Файлы ваши, а не root</h2>
+  <div class="cols">
+    <pre><code class="mk">UID ?= $(shell id -u)
+GID ?= $(shell id -g)
+export UID GID            # → build args образа
+
+# -T, когда нет терминала (CI, пайпы)
+TTY  := $(shell [ -t 0 ] || echo -T)
+EXEC := docker compose exec $(TTY) app
+
+artisan: ## make artisan C="make:model Post"
+	$(EXEC) php artisan $(C)</code></pre>
+    <pre><code># Dockerfile
+ARG UID=1000
+ARG GID=1000
+RUN addgroup -g "${GID}" app \
+ &amp;&amp; adduser -D -u "${UID}" -G app app
+USER app</code></pre>
+  </div>
+  <div class="notes">
+    Пользователь создаётся в образе с вашим UID/GID. Просто <code>exec -u 1000</code> хуже: в контейнере нет
+    такого пользователя, нет HOME, у composer проблемы с кэшем.
+    TTY-детект позволяет одному Makefile работать и в терминале, и в CI без «the input device is not a TTY».
+  </div>
+</section>
+
+<!-- 10 -->
+<section class="slide">
+  <h2><small>step-2 · нулевой онбординг</small><code>make init</code> и авто-справка</h2>
+  <div class="cols wide">
+    <pre><code class="mk">.DEFAULT_GOAL := help
+
+help: ## Show this help
+	@grep -hE '^[a-zA-Z_.-]+:.*?## ' $(MAKEFILE_LIST) \
+	  | awk 'BEGIN {FS = ":.*?## "}; \
+	    {printf "\033[36m%-12s\033[0m %s\n", $$1, $$2}'
+
+.env:                     # файловая цель
+	cp .env.example .env
+
+init: .env up vendor/autoload.php ## First run
+	@grep -q '^APP_KEY=base64' .env \
+	  || $(EXEC) php artisan key:generate
+	$(EXEC) php artisan migrate --seed</code></pre>
+    <ul>
+      <li class="good"><code>make</code> без аргументов = справка из комментариев <code>##</code></li>
+      <li class="good"><code>.env</code> создаётся, только если его нет</li>
+      <li class="good"><code>init</code> идемпотентен: второй запуск не меняет APP_KEY и не падает на сидере</li>
+      <li class="warn">Не делайте <code>.env: .env.example</code>: перезатрёт ваш .env</li>
+    </ul>
+  </div>
+  <div class="notes">
+    Новичок пишет <code>make init</code> и через пару минут пишет код. Почему важна идемпотентность: key:generate в local
+    молча перегенерирует ключ, и слетят сессии и всё, что зашифровано.
+  </div>
+</section>
+
+<!-- 11 -->
+<section class="slide">
+  <h2><small>step-3 · инкрементальность</small>Ставим зависимости, только когда нужно</h2>
+  <pre><code class="mk">vendor/autoload.php: composer.json composer.lock
+	$(EXEC) composer install
+	@touch $@                # $@ = имя цели
+
+# npm сам пишет этот файл при каждом install: бесплатный маркер
+node_modules/.package-lock.json: package.json $(wildcard package-lock.json)
+	$(NODE) npm install</code></pre>
+  <ul>
+    <li>Переключились на ветку с новым пакетом → <code>make init</code> сам поставит зависимости</li>
+    <li>Второй раз: <code>make -n init</code> показывает, что composer install не нужен</li>
+  </ul>
+  <div class="notes"><b>Демо:</b> <code>make -n init</code>, потом <code>touch composer.lock &amp;&amp; make -n init</code>.</div>
+</section>
+
+<!-- 12 -->
+<section class="slide">
+  <h2><small>step-3 · прощай, nvm</small>Node тоже в контейнере</h2>
+  <div class="cols wide-right">
+    <pre><code># docker-compose.yml
+node:
+  image: node:22-alpine
+  profiles: ["node"]
+  user: "${UID}:${GID}"
+  volumes: [".:/var/www/html"]
+  ports: ["5174:5174"]</code></pre>
+    <pre><code class="mk">NODE := docker compose run --rm node
+
+dev: node_modules/.package-lock.json
+	docker compose run --rm --service-ports \
+	  node npm run dev
+
+assets: node_modules/.package-lock.json
+	$(NODE) npm run build</code></pre>
+  </div>
+  <p class="muted">Vite: <code>host: '0.0.0.0'</code>, <code>hmr: { host: 'localhost' }</code>. Версия Node зафиксирована в одном месте.</p>
+  <div class="notes">Версия Node теперь часть проекта, а не личное дело каждого. Нативные бинарники собираются под Linux, как и в CI.</div>
+</section>
+
+<!-- 13 -->
+<section class="slide">
+  <h2><small>step-3 · скорость и защита</small>Параллельные проверки и «защита от дурака»</h2>
+  <div class="cols wide">
+    <pre><code class="mk">ifneq ($(filter output-sync,$(.FEATURES)),)
+MAKEFLAGS += --output-sync=target
+endif
+
+check: lint stan test ## make -j3 check
+
+db-fresh: ## asks first; FORCE=1 skips
+	@printf '\033[31mWipes the DB\033[0m\n'
+	@[ "$(FORCE)" = 1 ] || { printf 'Continue? [y/N] '; \
+	  read ans; [ "$${ans:-N}" = y ]; }
+	$(EXEC) php artisan migrate:fresh --seed</code></pre>
+    <ul>
+      <li><code>make -j3 check</code>: Pint, PHPStan, тесты одновременно, вывод не перемешан</li>
+      <li>В демо: ≈1.3 с вместо ≈3 с</li>
+      <li><code>FORCE=1</code> для скриптов и CI</li>
+      <li><code>.FEATURES</code>: на macOS make 3.81, у него нет <code>--output-sync</code></li>
+    </ul>
+  </div>
+  <div class="notes"><b>Демо:</b> <code>snippets/06-parallel</code>: 3 с против 1 с. Потом <code>echo n | make db-fresh</code>.</div>
+</section>
+
+<!-- 14 -->
+<section class="slide">
+  <h2><small>step-4 · идеал</small>Строгий режим и позиционные аргументы</h2>
+  <div class="cols wide">
+    <pre><code class="mk">SHELL := bash
+.SHELLFLAGS := -eu -o pipefail -c
+.DELETE_ON_ERROR:
+MAKEFLAGS += --warn-undefined-variables
+
+# make artisan migrate:status · make test UserTest
+PROXIES := artisan composer test npm
+ifneq ($(filter $(firstword $(MAKECMDGOALS)),$(PROXIES)),)
+ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
+%:
+	@:
+endif</code></pre>
+    <div class="card">
+      <h3>🪖 Военная история</h3>
+      <p>Первая версия у нас объявляла аргументы в <code>.PHONY: $(ARGS)</code>.</p>
+      <p><code>make artisan migrate:status</code> →<br><code>multiple target patterns. Stop.</code></p>
+      <p class="muted">make прочитал двоеточие как «цель: зависимость». Фикс: catch-all <code>%: ; @:</code>.</p>
+    </div>
+  </div>
+  <div class="notes">
+    pipefail: <code>mysqldump | gzip</code> больше не «успешен» при упавшем дампе. DELETE_ON_ERROR: недописанный файл-цель
+    удаляется, а не считается готовым. История реальная, из ревью нашего Makefile.
+  </div>
+</section>
+
+<!-- 15 -->
+<section class="slide">
+  <h2><small>step-4 · один источник правды</small>Те же команды у людей и в CI</h2>
+  <div class="cols">
+    <pre><code class="mk">ci: ## What CI runs
+	$(MAKE) init
+	$(MAKE) -j3 check
+
+-include Makefile.local   # личное, в .gitignore
+
+doctor: ## docker? compose v2? ports free?</code></pre>
+    <pre><code># .github/workflows/ci.yml
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: make ci</code></pre>
+  </div>
+  <p class="muted">Никаких <code>setup-php</code>/<code>setup-node</code>: CI поднимает тот же Docker, что и вы.</p>
+  <div class="notes">
+    «В CI зелёное, у меня красное» исчезает, когда CI буквально зовёт ту же цель.
+    <code>make doctor</code> проверяет машину до того, как человек пойдёт читать логи.
+  </div>
+</section>
+
+<!-- 16 -->
+<section class="slide">
+  <h2><small>Где make не надо</small>Границы и подводные камни</h2>
+  <ul>
+    <li class="warn"><code>include .env</code>: кавычки остаются в значении, <code>$</code> съедается make → лучше брать креды из окружения контейнера</li>
+    <li class="warn">Сложная логика (циклы, JSON, ветвления) → <code>scripts/*.sh</code>, а make только зовёт</li>
+    <li class="warn">macOS: make 3.81 (2006 г.) → проверки <code>.FEATURES</code> или <code>brew install make</code></li>
+    <li class="warn">Windows: только WSL2, проект внутри Linux-ФС, не в <code>/mnt/c</code></li>
+    <li>Альтернативы: <code>just</code>, Task (go-task): приятнее синтаксис, но их надо ставить</li>
+  </ul>
+  <div class="notes"><b>Демо:</b> <code>snippets/05-include-env</code>: APP_NAME с кавычками, пароль <code>pa$word</code> превращается в <code>paord</code>.</div>
+</section>
+
+<!-- 17 -->
+<section class="slide">
+  <h2><small>Итоги</small>Три вывода</h2>
+  <ul class="big">
+    <li class="good"><b>Единый стандарт</b>: <code>make init / test / check</code> одинаковые во всех проектах</li>
+    <li class="good"><b>Изоляция</b>: на хосте только Docker и make, ни PHP, ни Node</li>
+    <li class="good"><b>Онбординг</b>: <code>git clone &amp;&amp; make init</code>, и через пару минут вы пишете код</li>
+  </ul>
+  <p class="muted">Полезное: <code>make -n</code> · <code>make -p</code> · <code>make --trace</code></p>
+</section>
+
+<!-- 18 -->
+<section class="slide title-slide">
+  <h1>Вопросы?</h1>
+  <p class="muted">Демо: <code>~/demo/app</code> · ветки <code>step-0 … step-4</code> · ловушки: <code>~/demo/snippets</code></p>
+  <div class="notes">
+    Частые вопросы: Windows → WSL2. Почему не ./run.sh → нет графа зависимостей, инкрементальности и -j.
+    Почему не composer scripts → нужен PHP на хосте. Sail → тоже обёртка, make может звать Sail внутри.
+  </div>
+</section>
+
+</div>
+
+<aside id="notes"></aside>
+<div id="bar"></div>
+<div id="count"></div>
+<div id="help">← → листать · S заметки · F полный экран</div>
+
+<script>
+  // Tiny Makefile highlighter for <code class="mk">: comments, targets, $(vars), strings.
+  const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  document.querySelectorAll('code.mk').forEach(el => {
+    el.innerHTML = el.textContent.split('\n').map(line => {
+      let out = esc(line);
+      const hash = out.search(/(^|\s)#/);
+      let comment = '';
+      if (hash >= 0 && !/['"]/.test(out.slice(0, hash).replace(/'[^']*'|"[^"]*"/g, ''))) {
+        comment = '<span class="hl-c">' + out.slice(hash) + '</span>';
+        out = out.slice(0, hash);
+      }
+      out = out
+        .replace(/('[^']*'|"[^"]*")/g, '<span class="hl-s">$1</span>')
+        .replace(/(\$\$?\([^)]*\)|\$(?:@|&lt;|\^))/g, '<span class="hl-v">$1</span>')
+        .replace(/^(\.?[A-Za-z_./%-][\w./%-]*(?: [\w./%-]+)*)(\s*:(?!=))/, '<span class="hl-t">$1</span>$2')
+        .replace(/^(ifneq|ifeq|endif|include|-include|export)\b/, '<span class="hl-k">$1</span>');
+      return out + comment;
+    }).join('\n');
+  });
+
+  const slides = [...document.querySelectorAll('.slide')];
+  const notes = document.getElementById('notes');
+  let i = Math.max(0, Math.min(slides.length - 1, (parseInt(location.hash.slice(1), 10) || 1) - 1));
+  try { if (localStorage.getItem('mk-notes') === '1') document.body.classList.add('show-notes'); } catch (e) {}
+
+  function show(n) {
+    i = Math.max(0, Math.min(slides.length - 1, n));
+    slides.forEach((s, k) => s.classList.toggle('active', k === i));
+    const note = slides[i].querySelector('.notes');
+    notes.innerHTML = note ? '<b>Заметки:</b><br>' + note.innerHTML : '<span class="muted">Без заметок</span>';
+    document.getElementById('count').textContent = (i + 1) + ' / ' + slides.length;
+    document.getElementById('bar').style.width = ((i + 1) / slides.length * 100) + '%';
+    history.replaceState(null, '', '#' + (i + 1));
+  }
+
+  document.addEventListener('keydown', e => {
+    if (['ArrowRight', 'PageDown', ' ', 'Enter'].includes(e.key)) { e.preventDefault(); show(i + 1); }
+    else if (['ArrowLeft', 'PageUp', 'Backspace'].includes(e.key)) { e.preventDefault(); show(i - 1); }
+    else if (e.key === 'Home') show(0);
+    else if (e.key === 'End') show(slides.length - 1);
+    else if (e.key.toLowerCase() === 's') {
+      const on = document.body.classList.toggle('show-notes');
+      try { localStorage.setItem('mk-notes', on ? '1' : '0'); } catch (err) {}
+    }
+    else if (e.key.toLowerCase() === 'f') {
+      document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+    }
+  });
+  document.addEventListener('click', e => {
+    if (e.target.closest('pre, a, #notes')) return;
+    show(e.clientX > innerWidth / 3 ? i + 1 : i - 1);
+  });
+  show(i);
+</script>
+</body>
+</html>
